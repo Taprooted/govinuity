@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Local environment — never commit secrets
+.env.local
+.env.*.local
+
+# Data directory — local to each deployment
+data/
+
+# Runtime lock files
+.govinuity-locks/
+
+# OS / editor noise
+.DS_Store
+*.swp
+*.swo
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Logs
+*.log
+scripts/*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

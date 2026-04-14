@@ -92,7 +92,7 @@ FULL_HISTORY  = "--full-history" in sys.argv
 
 GOVINUITY_URL       = os.environ.get("GOVINUITY_URL", "http://localhost:3000")
 CLAUDE_BIN          = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
-CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+CLAUDE_PROJECTS_DIR = Path(os.environ.get("GOVINUITY_SESSION_DIR", str(Path.home() / ".claude" / "projects")))
 WATERMARK_FILE      = Path.home() / ".claude" / "proposal_harvest_watermark.json"
 META_DIR            = Path(os.environ.get("GOVINUITY_META_DIR", Path.home() / ".govinuity" / "data"))
 DECISIONS_PATH      = META_DIR / "decisions.jsonl"

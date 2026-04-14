@@ -41,6 +41,8 @@ export default function HarvestPage() {
   // Sessions mode state
   const [hours, setHours] = useState(48);
   const [customHours, setCustomHours] = useState("");
+  const [sessionDir, setSessionDir] = useState("");
+  const [configuredSessionDir, setConfiguredSessionDir] = useState<string | null>(null);
   const [autoInterval, setAutoInterval] = useState<number | null>(null);
   const [nextRunIn, setNextRunIn] = useState<string | null>(null);
 
@@ -62,7 +64,12 @@ export default function HarvestPage() {
   }
 
   useEffect(() => {
-    fetchMeta().then((m) => { if (m.running) setRunning(true); });
+    fetch("/api/harvest").then((r) => r.json()).then((d) => {
+      const m: HarvestMeta = d.meta ?? { running: false };
+      setMeta(m);
+      if (m.running) setRunning(true);
+      if (d.sessionDir) setConfiguredSessionDir(d.sessionDir);
+    });
   }, []);
 
   // Poll while running — sessions mode only (text mode is synchronous)
@@ -108,7 +115,7 @@ export default function HarvestPage() {
     const payload =
       mode === "text"
         ? { mode: "text", text: pastedText, source: effectiveSource }
-        : { mode: "sessions", hours: effectiveHours };
+        : { mode: "sessions", hours: effectiveHours, sessionDir: sessionDir.trim() || undefined };
 
     const res = await fetch("/api/harvest", {
       method: "POST",
@@ -171,9 +178,23 @@ export default function HarvestPage() {
         {mode === "sessions" && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Scans session files in the configured directory, extracts candidate decisions, and submits them as proposals.
+              Scans JSONL session files in a directory, extracts candidate decisions, and submits them as proposals.
               Also detects correction signals — decisions followed, ignored, or requiring restatement — and posts them as run annotations.
             </p>
+            <div className="space-y-1">
+              <p className="text-xs text-[var(--muted)]">Session directory</p>
+              <input
+                type="text"
+                value={sessionDir}
+                onChange={(e) => setSessionDir(e.target.value)}
+                placeholder={configuredSessionDir ?? "~/.claude/projects"}
+                className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono focus:outline-none focus:ring-1 focus:ring-indigo-700"
+              />
+              <p className="text-xs text-[var(--muted)]">
+                Set <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVINUITY_SESSION_DIR</code> in <code className="font-mono bg-[var(--panel-2)] px-1 rounded">.env.local</code> to change the default.
+                Expects JSONL files with <code className="font-mono bg-[var(--panel-2)] px-1 rounded">type</code> and <code className="font-mono bg-[var(--panel-2)] px-1 rounded">message</code> fields (Claude Code format).
+              </p>
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-[var(--muted)]">Lookback</span>
               {LOOKBACK_OPTIONS.map((opt) => (

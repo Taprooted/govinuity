@@ -40,11 +40,12 @@ function parseOutput(output: string): { submitted: number; annotations: number }
   return { submitted, annotations };
 }
 
-function runScript(args: string[], stdin?: string): Promise<{ stdout: string; stderr: string }> {
+function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const proc = spawn("python3", args, {
       cwd: process.cwd(),
       timeout: 120_000,
+      env: env ?? process.env,
     });
 
     let stdout = "";
@@ -62,9 +63,15 @@ function runScript(args: string[], stdin?: string): Promise<{ stdout: string; st
   });
 }
 
+const DEFAULT_SESSION_DIR = path.join(
+  process.env.HOME ?? process.env.USERPROFILE ?? "",
+  ".claude", "projects",
+);
+
 export async function GET() {
   const meta = readMeta();
-  return Response.json({ meta });
+  const sessionDir = process.env.GOVINUITY_SESSION_DIR ?? DEFAULT_SESSION_DIR;
+  return Response.json({ meta, sessionDir });
 }
 
 export async function POST(request: Request) {
@@ -80,6 +87,7 @@ export async function POST(request: Request) {
   const hours: number = Math.max(1, Math.min(168, Number(body.hours) || 48));
   const text: string | undefined = typeof body.text === "string" ? body.text : undefined;
   const source: string = typeof body.source === "string" && body.source.trim() ? body.source.trim() : "paste";
+  const sessionDir: string | undefined = typeof body.sessionDir === "string" && body.sessionDir.trim() ? body.sessionDir.trim() : undefined;
 
   const scriptPath = path.join(process.cwd(), "scripts", "harvest_proposals.py");
   if (!fs.existsSync(scriptPath)) {
@@ -112,8 +120,10 @@ export async function POST(request: Request) {
   writeMeta({ ...meta, running: true, started_at: new Date().toISOString(), running_hours: hours });
   const started = Date.now();
 
+  const env = sessionDir ? { ...process.env, GOVINUITY_SESSION_DIR: sessionDir } : process.env;
+
   return new Promise<Response>((resolve) => {
-    runScript(["scripts/harvest_proposals.py", "--submit", "--since", `${hours}h`])
+    runScript(["scripts/harvest_proposals.py", "--submit", "--since", `${hours}h`], undefined, env)
       .then(({ stdout, stderr }) => {
         const duration_ms = Date.now() - started;
         const combined = (stdout + "\n" + stderr).trim();

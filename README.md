@@ -186,6 +186,7 @@ The `--source` label is recorded on surfaced candidates for provenance. Text inp
 |---|---|---|
 | `GOVINUITY_META_DIR` | `./data` | Directory for the SQLite database and JSONL files |
 | `GOVINUITY_MEMORY_DIR` | `~/.claude/memory` | Directory for Claude Code memory files (read by `/api/memory`) |
+| `GOVINUITY_SESSION_DIR` | `~/.claude/projects` | Directory scanned for JSONL session files during harvest. Override to point at another tool's session export directory. |
 
 Copy `.env.example` to `.env.local` and uncomment lines you want to override.
 

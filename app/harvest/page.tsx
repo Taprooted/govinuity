@@ -43,6 +43,7 @@ export default function HarvestPage() {
   const [customHours, setCustomHours] = useState("");
   const [sessionDir, setSessionDir] = useState("");
   const [configuredSessionDir, setConfiguredSessionDir] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [autoInterval, setAutoInterval] = useState<number | null>(null);
   const [nextRunIn, setNextRunIn] = useState<string | null>(null);
 
@@ -181,19 +182,31 @@ export default function HarvestPage() {
               Scans JSONL session files in a directory, extracts candidate decisions, and submits them as proposals.
               Also detects correction signals — decisions followed, ignored, or requiring restatement — and posts them as run annotations.
             </p>
-            <div className="space-y-1">
-              <p className="text-xs text-[var(--muted)]">Session directory</p>
-              <input
-                type="text"
-                value={sessionDir}
-                onChange={(e) => setSessionDir(e.target.value)}
-                placeholder={configuredSessionDir ?? "~/.claude/projects"}
-                className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono focus:outline-none focus:ring-1 focus:ring-indigo-700"
-              />
-              <p className="text-xs text-[var(--muted)]">
-                Set <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVINUITY_SESSION_DIR</code> in <code className="font-mono bg-[var(--panel-2)] px-1 rounded">.env.local</code> to change the default.
-                Expects JSONL files with <code className="font-mono bg-[var(--panel-2)] px-1 rounded">type</code> and <code className="font-mono bg-[var(--panel-2)] px-1 rounded">message</code> fields (Claude Code format).
-              </p>
+            <div>
+              <button
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+              >
+                {showAdvanced ? "▾" : "▸"} Advanced
+                {configuredSessionDir && !showAdvanced && (
+                  <span className="ml-2 font-mono opacity-60">{sessionDir.trim() || configuredSessionDir}</span>
+                )}
+              </button>
+              {showAdvanced && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs text-[var(--muted)]">Session directory</p>
+                  <input
+                    type="text"
+                    value={sessionDir}
+                    onChange={(e) => setSessionDir(e.target.value)}
+                    placeholder={configuredSessionDir ?? "~/.claude/projects"}
+                    className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono focus:outline-none focus:ring-1 focus:ring-indigo-700"
+                  />
+                  <p className="text-xs text-[var(--muted)]">
+                    Override for this run only, or set <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVINUITY_SESSION_DIR</code> in <code className="font-mono bg-[var(--panel-2)] px-1 rounded">.env.local</code> to change the default permanently.
+                  </p>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-[var(--muted)]">Lookback</span>

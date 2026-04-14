@@ -63,14 +63,17 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
   });
 }
 
-const DEFAULT_SESSION_DIR = path.join(
-  process.env.HOME ?? process.env.USERPROFILE ?? "",
-  ".claude", "projects",
-);
+const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "";
+const DEFAULT_SESSION_DIR = path.join(HOME, ".claude", "projects");
+
+function tildify(p: string): string {
+  if (HOME && p.startsWith(HOME)) return "~" + p.slice(HOME.length);
+  return p;
+}
 
 export async function GET() {
   const meta = readMeta();
-  const sessionDir = process.env.GOVINUITY_SESSION_DIR ?? DEFAULT_SESSION_DIR;
+  const sessionDir = tildify(process.env.GOVINUITY_SESSION_DIR ?? DEFAULT_SESSION_DIR);
   return Response.json({ meta, sessionDir });
 }
 

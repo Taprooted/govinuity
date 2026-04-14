@@ -203,6 +203,7 @@ data/
 
 ## Documentation
 
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the system works end-to-end: components, pipeline steps, injection eligibility, continuity runs, outcome measurement, data layout, integration points, and design invariants
 - [`docs/DECISION-SCHEMA.md`](docs/DECISION-SCHEMA.md) — full decision data model: lifecycle, proposal classes, transfer tiers, scope, confidence, temporal fields, supersession, and the complete injection eligibility taxonomy
 - [`docs/semantic-backfill.md`](docs/semantic-backfill.md) — normalizing legacy JSONL records
 

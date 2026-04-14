@@ -43,6 +43,7 @@ function RunCard({
   onAnnotated: (runId: string, newAnnotations: RunAnnotation[]) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showAnnotate, setShowAnnotate] = useState(false);
   const [selected, setSelected] = useState<Set<AnnotationType>>(new Set());
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -145,47 +146,56 @@ function RunCard({
             </div>
           )}
 
-          {/* Annotation form */}
-          <div className="space-y-2.5">
-            <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Annotate this run</p>
-            <div className="flex flex-wrap gap-1.5">
-              {ANNOTATION_CONFIG.map(({ type, label, tone }) => {
-                const alreadyDone = existingTypes.has(type);
-                const isSelected = selected.has(type);
-                return (
-                  <button
-                    key={type}
-                    onClick={() => !alreadyDone && toggle(type)}
-                    disabled={alreadyDone}
-                    className={`rounded border px-2.5 py-1 text-xs transition-colors ${
-                      alreadyDone
-                        ? `${TONE_CLASS[tone].active} opacity-50 cursor-default`
-                        : isSelected
-                          ? TONE_CLASS[tone].active
-                          : TONE_CLASS[tone].idle
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            {selected.size > 0 && (
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                placeholder="Optional note…"
-                className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700 resize-none"
-              />
-            )}
+          {/* Annotation form — collapsed by default */}
+          <div>
             <button
-              onClick={submit}
-              disabled={saving || selected.size === 0}
-              className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
+              onClick={() => setShowAnnotate(v => !v)}
+              className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
             >
-              {saving ? "Saving…" : `Save${selected.size > 0 ? ` (${selected.size})` : ""}`}
+              {showAnnotate ? "▾ Hide manual annotation" : "▸ Annotate manually"}
             </button>
+            {showAnnotate && (
+              <div className="mt-2.5 space-y-2.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {ANNOTATION_CONFIG.map(({ type, label, tone }) => {
+                    const alreadyDone = existingTypes.has(type);
+                    const isSelected = selected.has(type);
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => !alreadyDone && toggle(type)}
+                        disabled={alreadyDone}
+                        className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+                          alreadyDone
+                            ? `${TONE_CLASS[tone].active} opacity-50 cursor-default`
+                            : isSelected
+                              ? TONE_CLASS[tone].active
+                              : TONE_CLASS[tone].idle
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selected.size > 0 && (
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                    placeholder="Optional note…"
+                    className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700 resize-none"
+                  />
+                )}
+                <button
+                  onClick={submit}
+                  disabled={saving || selected.size === 0}
+                  className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
+                >
+                  {saving ? "Saving…" : `Save${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -284,35 +294,28 @@ export default function RunsPage() {
   const [annotations, setAnnotations] = useState<Record<string, RunAnnotation[]>>({});
   const [stats, setStats] = useState<{ total_runs: number; total_injected: number; total_excluded: number; exclusion_reasons: Record<string, number> } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeProject, setActiveProject] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
-    setLoadError(null);
     const proj = activeProject ? `&project=${activeProject}` : "";
-    try {
-      const [runsData, annotsData] = await Promise.all([
-        fetch(`/api/runs?limit=50${proj}`).then((r) => r.json()),
-        fetch(`/api/run-annotations?limit=500`).then((r) => r.json()),
-      ]);
+    const [runsData, annotsData] = await Promise.all([
+      fetch(`/api/runs?limit=50${proj}`).then((r) => r.json()),
+      fetch(`/api/run-annotations?limit=500`).then((r) => r.json()),
+    ]);
 
-      const fetchedRuns: ContinuityRunRecord[] = runsData.runs ?? [];
-      setRuns(fetchedRuns);
-      setStats(runsData.stats ?? null);
+    const fetchedRuns: ContinuityRunRecord[] = runsData.runs ?? [];
+    setRuns(fetchedRuns);
+    setStats(runsData.stats ?? null);
 
-      // Group annotations by run_id
-      const grouped: Record<string, RunAnnotation[]> = {};
-      for (const a of (annotsData.annotations ?? []) as RunAnnotation[]) {
-        if (!grouped[a.run_id]) grouped[a.run_id] = [];
-        grouped[a.run_id].push(a);
-      }
-      setAnnotations(grouped);
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Failed to load runs");
-    } finally {
-      setLoading(false);
+    // Group annotations by run_id
+    const grouped: Record<string, RunAnnotation[]> = {};
+    for (const a of (annotsData.annotations ?? []) as RunAnnotation[]) {
+      if (!grouped[a.run_id]) grouped[a.run_id] = [];
+      grouped[a.run_id].push(a);
     }
+    setAnnotations(grouped);
+    setLoading(false);
   }
 
   useEffect(() => { load(); }, [activeProject]);
@@ -327,7 +330,6 @@ export default function RunsPage() {
   const annotatedRunCount = Object.values(annotations).filter((a) => a.length > 0).length;
 
   if (loading) return <div className="text-[var(--muted)] text-sm">Loading…</div>;
-  if (loadError) return <div className="p-8 text-sm text-red-400">Could not load runs: {loadError}</div>;
 
   return (
     <div className="space-y-6">

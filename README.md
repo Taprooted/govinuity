@@ -149,6 +149,8 @@ The harvest script can also be run directly, which is useful for cron jobs or CI
 
 **Requirements:** Python 3.9+. For Instructor extraction: `pip install pydantic anthropic instructor python-dotenv`. On Python 3.9, some Instructor/Pydantic versions may also require `eval_type_backport`; without a working Anthropic/Instructor path, the script falls back to the Claude CLI if installed and authenticated separately. `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically.
 
+By default, the script looks for the Claude Code session directory matching the current repo path. If it cannot find that directory, it falls back to `~/.claude/projects`. It processes the newest 25 matching session files by default to avoid slow, noisy all-history scans.
+
 ```bash
 # Submit proposals from the last 48 hours
 python3 scripts/harvest_proposals.py --submit
@@ -158,6 +160,9 @@ python3 scripts/harvest_proposals.py --dry-run
 
 # Custom lookback
 python3 scripts/harvest_proposals.py --submit --since 7d
+
+# Debug a scan without the previous watermark, limited to the newest files
+python3 scripts/harvest_proposals.py --dry-run --no-watermark --max-files 5
 
 # From a file (Cursor, LangGraph, OpenAI Assistants, etc.)
 python3 scripts/harvest_proposals.py --input session.txt --source cursor --submit
@@ -187,6 +192,7 @@ The `--source` label is recorded on surfaced candidates for provenance. The scri
 | `GOVINUITY_META_DIR` | `./data` | Directory for the SQLite database and JSONL files |
 | `GOVINUITY_MEMORY_DIR` | `~/.claude/memory` | Directory for Claude Code memory files (read by `/api/memory`) |
 | `GOVINUITY_SESSION_DIR` | `~/.claude/projects` | Directory scanned for JSONL session files during harvest. Override to point at another tool's session export directory. |
+| `GOVINUITY_HARVEST_MAX_FILES` | `25` | Maximum newest session files scanned per harvest run. |
 
 Copy `.env.example` to `.env.local` and uncomment lines you want to override.
 

@@ -43,6 +43,8 @@ Usage:
     python3 scripts/harvest_proposals.py --dry-run               # print staged, don't write
     python3 scripts/harvest_proposals.py --submit                # stage + POST to /api/decisions
     python3 scripts/harvest_proposals.py --full-history          # ignore recency filter
+    python3 scripts/harvest_proposals.py --no-watermark          # rescan already-seen turns
+    python3 scripts/harvest_proposals.py --max-files 10          # process newest N files
     python3 scripts/harvest_proposals.py --since 7d              # custom lookback (hours or days)
     python3 scripts/harvest_proposals.py --session /path/to/session.jsonl
 
@@ -90,10 +92,10 @@ if _env_local.exists():
 DRY_RUN       = "--dry-run" in sys.argv
 SUBMIT        = "--submit" in sys.argv
 FULL_HISTORY  = "--full-history" in sys.argv
+NO_WATERMARK  = "--no-watermark" in sys.argv
 
 GOVINUITY_URL       = os.environ.get("GOVINUITY_URL", "http://localhost:3000")
 CLAUDE_BIN          = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
-CLAUDE_PROJECTS_DIR = Path(os.environ.get("GOVINUITY_SESSION_DIR", Path.home() / ".claude" / "projects")).expanduser()
 WATERMARK_FILE      = Path.home() / ".claude" / "proposal_harvest_watermark.json"
 META_DIR            = Path(os.environ.get("GOVINUITY_META_DIR", _REPO_DIR / "data"))
 DECISIONS_PATH      = META_DIR / "decisions.jsonl"
@@ -105,6 +107,9 @@ STAGE_FILE = _REPO_DIR / "scripts" / ".harvest_staged.json"
 DEFAULT_LOOKBACK_HOURS = 48
 MIN_TURN_LENGTH        = 30
 CHUNK_SIZE             = 60
+DEFAULT_MAX_FILES      = int(os.environ.get("GOVINUITY_HARVEST_MAX_FILES", "25"))
+EXTRACTION_ATTEMPTS    = 0
+EXTRACTION_FAILURES    = 0
 
 # Model used for Instructor-based extraction
 EXTRACTION_MODEL = os.environ.get("HARVEST_MODEL", "claude-haiku-4-5-20251001")
@@ -116,6 +121,27 @@ ALLOWED_CLASSES = {
     "scoped_exception",          # specific rule for a bounded area; only relevant in that scope
     "durable_constraint",        # operational/config constraint that must persist
 }
+
+
+def claude_project_dir_for(path_value: Path) -> Path:
+    """Claude Code stores project sessions in ~/.claude/projects/<path-with-slashes-replaced>."""
+    encoded = re.sub(r"[^A-Za-z0-9_-]", "-", str(path_value.resolve()))
+    return Path.home() / ".claude" / "projects" / encoded
+
+
+def default_session_dir() -> Path:
+    configured = os.environ.get("GOVINUITY_SESSION_DIR")
+    if configured:
+        return Path(configured).expanduser()
+
+    current_project_dir = claude_project_dir_for(_REPO_DIR)
+    if current_project_dir.exists():
+        return current_project_dir
+
+    return Path.home() / ".claude" / "projects"
+
+
+CLAUDE_PROJECTS_DIR = default_session_dir()
 
 
 # ── Langfuse tracing (optional, no-ops when not configured) ───────────────────
@@ -238,6 +264,16 @@ def explicit_source() -> str:
         if arg == "--source" and i + 1 < len(sys.argv):
             return sys.argv[i + 1]
     return "text"
+
+
+def parse_max_files_arg() -> int:
+    for i, arg in enumerate(sys.argv):
+        if arg == "--max-files" and i + 1 < len(sys.argv):
+            try:
+                return max(1, int(sys.argv[i + 1]))
+            except ValueError:
+                pass
+    return DEFAULT_MAX_FILES
 
 
 def load_watermark() -> dict:
@@ -395,6 +431,8 @@ STRICT EXCLUSIONS — do NOT extract:
 - Personal profile statements (e.g. "Alex is a strategist") unless explicitly marked as durable
 - Exploratory directions that are still in flux
 
+DO extract settled project operating rules, repo/release boundaries, durable product positioning, governance constraints, or workflow conventions when a future session would need them to avoid repeating context.
+
 A good continuity object answers: "Would a future agent or session need to know this to do their work correctly?"
 
 For each candidate, return:
@@ -432,10 +470,13 @@ def extract_chunk_candidates_instructor(
     chunk: list[dict], idx: int, total: int
 ) -> list[dict]:
     """Structured extraction using Instructor + Anthropic SDK."""
+    global EXTRACTION_ATTEMPTS, EXTRACTION_FAILURES
+    EXTRACTION_ATTEMPTS += 1
     try:
         import instructor
         import anthropic
     except Exception as e:
+        EXTRACTION_ATTEMPTS -= 1
         log(f"    Chunk {idx}: Instructor unavailable — falling back to Claude CLI ({e})")
         return extract_chunk_candidates_subprocess(chunk, idx, total)
 
@@ -476,6 +517,7 @@ def extract_chunk_candidates_instructor(
         return candidates
 
     except Exception as e:
+        EXTRACTION_FAILURES += 1
         log(f"    Chunk {idx}: Instructor extraction error — {e}")
         return []
 
@@ -486,6 +528,8 @@ def extract_chunk_candidates_subprocess(
     chunk: list[dict], idx: int, total: int
 ) -> list[dict]:
     """Fallback extraction via subprocess Claude CLI (no API key required)."""
+    global EXTRACTION_ATTEMPTS, EXTRACTION_FAILURES
+    EXTRACTION_ATTEMPTS += 1
     trust = classify_source_trust(chunk)
     turns_text = "\n\n".join(
         f"[{t['ts'][:16]}] {'User' if t['role']=='user' else 'Claude'}: {t['text']}"
@@ -501,8 +545,15 @@ def extract_chunk_candidates_subprocess(
             [CLAUDE_BIN, "--print", "--output-format=text"],
             input=prompt, capture_output=True, text=True, timeout=120,
         )
+        if result.returncode != 0:
+            EXTRACTION_FAILURES += 1
+            err = (result.stderr or result.stdout or "").strip()
+            log(f"    Chunk {idx}: Claude CLI extraction failed (exit {result.returncode}) — {err[:300]}")
+            return []
         raw = (result.stdout or result.stderr or "").strip()
         if not raw:
+            EXTRACTION_FAILURES += 1
+            log(f"    Chunk {idx}: Claude CLI extraction returned no output")
             return []
         raw = re.sub(r"^```(?:json)?\n?", "", raw)
         raw = re.sub(r"\n?```$", "", raw)
@@ -525,11 +576,22 @@ def extract_chunk_candidates_subprocess(
         return raw_candidates
 
     except json.JSONDecodeError as e:
+        EXTRACTION_FAILURES += 1
         log(f"    Chunk {idx}: JSON parse error — {e}")
         return []
     except Exception as e:
+        EXTRACTION_FAILURES += 1
         log(f"    Chunk {idx}: extraction error — {e}")
         return []
+
+
+def fail_if_extraction_backend_failed():
+    if EXTRACTION_ATTEMPTS > 0 and EXTRACTION_FAILURES == EXTRACTION_ATTEMPTS:
+        log(
+            "Harvest failed: every extraction call failed. "
+            "Check ANTHROPIC_API_KEY/Instructor setup or run `claude /login` for the CLI fallback."
+        )
+        sys.exit(2)
 
 
 def extract_chunk_candidates(chunk: list[dict], idx: int, total: int) -> list[dict]:
@@ -825,6 +887,7 @@ def submit_candidates(candidates: list[dict]) -> int:
             "possible_conflicts": c.get("possible_conflicts", []),
             "scope":             c.get("scope", "global"),
             "tags":              c.get("tags", []),
+            "proposal_class":    c.get("proposal_class", ""),
             "source_type":        "harvest",
             "source_agent":       c.get("source_agent") or c.get("source") or "harvest",
             "source":             c.get("source_agent") or c.get("source") or "harvest",
@@ -965,8 +1028,13 @@ def harvest_session(path: Path, watermark: dict, since_ts: Optional[str] = None)
     since_ts: ISO timestamp — skip turns older than this (used when no watermark exists).
     signals: correction/outcome signals detected from the session transcript.
     """
-    key      = str(path)
-    after_ts = None if FULL_HISTORY else (watermark.get(key) or since_ts)
+    key = str(path)
+    if FULL_HISTORY:
+        after_ts = None
+    elif NO_WATERMARK:
+        after_ts = since_ts
+    else:
+        after_ts = watermark.get(key) or since_ts
 
     turns = load_session_turns(path, after_ts)
     if not turns:
@@ -1004,18 +1072,42 @@ def harvest_session(path: Path, watermark: dict, since_ts: Optional[str] = None)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def find_session_files(lookback_hours: float) -> list[Path]:
+def is_harvest_generated_session(path: Path) -> bool:
+    """
+    Claude CLI extraction calls create their own JSONL sessions. Skip those so
+    harvesting does not recursively harvest its own prompts and JSON outputs.
+    """
+    markers = (
+        "You are a continuity-extraction assistant for a governed decision memory system.",
+        "You are reviewing a Claude Code session transcript to detect continuity outcome signals.",
+    )
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            sample = "".join(f.readline() for _ in range(8))
+    except Exception:
+        return False
+    return any(marker in sample for marker in markers)
+
+
+def find_session_files(lookback_hours: float, max_files: int) -> tuple[list[Path], int]:
     cutoff = time.time() - lookback_hours * 3600
     files  = []
     if not CLAUDE_PROJECTS_DIR.exists():
-        return files
+        return files, 0
+
+    for f in CLAUDE_PROJECTS_DIR.glob("*.jsonl"):
+        if f.stat().st_mtime >= cutoff and not is_harvest_generated_session(f):
+            files.append(f)
+
     for project_dir in CLAUDE_PROJECTS_DIR.iterdir():
-        if not project_dir.is_dir():
-            continue
-        for f in project_dir.glob("*.jsonl"):
-            if f.stat().st_mtime >= cutoff:
-                files.append(f)
-    return sorted(files, key=lambda f: f.stat().st_mtime)
+        if project_dir.is_dir():
+            for f in project_dir.glob("*.jsonl"):
+                if f.stat().st_mtime >= cutoff and not is_harvest_generated_session(f):
+                    files.append(f)
+
+    unique = {str(f): f for f in files}
+    newest_first = sorted(unique.values(), key=lambda f: f.stat().st_mtime, reverse=True)
+    return newest_first[:max_files], len(newest_first)
 
 
 @observe(name="harvest-run", as_type="span", capture_input=False)
@@ -1023,12 +1115,14 @@ def main():
     lookback = DEFAULT_LOOKBACK_HOURS if not FULL_HISTORY else float("inf")
     if not FULL_HISTORY:
         lookback = parse_since_arg()
+    max_files = parse_max_files_arg()
 
     extraction_mode = "instructor" if (ANTHROPIC_API_KEY and _PYDANTIC_AVAILABLE) else "subprocess"
     log(
         f"harvest starting — dry_run={DRY_RUN} submit={SUBMIT} "
         f"full_history={FULL_HISTORY} lookback={'∞' if FULL_HISTORY else f'{lookback}h'} "
-        f"extraction={extraction_mode} langfuse={_LANGFUSE_ENABLED}"
+        f"max_files={max_files} no_watermark={NO_WATERMARK} "
+        f"session_dir={CLAUDE_PROJECTS_DIR} extraction={extraction_mode} langfuse={_LANGFUSE_ENABLED}"
     )
 
     watermark = load_watermark()
@@ -1064,6 +1158,7 @@ def main():
         all_signals = signals
 
         log(f"\nFinal candidate count: {len(all_candidates)}, correction signals: {len(all_signals)}")
+        fail_if_extraction_backend_failed()
 
         if DRY_RUN:
             print_staged(all_candidates, all_signals)
@@ -1093,16 +1188,22 @@ def main():
     explicit = explicit_session()
     if explicit:
         session_files = [explicit]
+        total_matching = 1
     elif FULL_HISTORY:
-        session_files = find_session_files(float("inf"))
+        session_files, total_matching = find_session_files(float("inf"), max_files)
     else:
-        session_files = find_session_files(lookback)
+        session_files, total_matching = find_session_files(lookback, max_files)
 
     if not session_files:
         log("No session files found.")
         return
 
-    log(f"Found {len(session_files)} session file(s)" + (f" (turns after {since_ts[:16]})" if since_ts else ""))
+    limited = f"; processing newest {len(session_files)}" if total_matching > len(session_files) else ""
+    watermark_note = "; ignoring watermark" if NO_WATERMARK else ""
+    log(
+        f"Found {total_matching} session file(s){limited}"
+        + (f" (turns after {since_ts[:16]}{watermark_note})" if since_ts else watermark_note)
+    )
 
     all_candidates  = []
     session_meta    = []
@@ -1112,12 +1213,21 @@ def main():
     for path in session_files:
         raw_count, final_count, first_ts, last_ts, candidates, signals = harvest_session(path, watermark, since_ts)
 
-        if last_ts and not DRY_RUN:
+        if last_ts and not DRY_RUN and not NO_WATERMARK and (raw_count > 0 or signals):
             new_watermark[str(path)] = last_ts
 
         if candidates:
             all_candidates.extend(candidates)
-            session_meta.append({"path": str(path), "first_ts": first_ts, "last_ts": last_ts, "count": final_count})
+
+        if first_ts or last_ts or raw_count or final_count or signals:
+            session_meta.append({
+                "path": str(path),
+                "first_ts": first_ts,
+                "last_ts": last_ts,
+                "raw_count": raw_count,
+                "count": final_count,
+                "signals": len(signals),
+            })
 
         if signals and first_ts and last_ts:
             session_signals.append({"first_ts": first_ts, "last_ts": last_ts, "signals": signals})
@@ -1132,6 +1242,7 @@ def main():
 
     all_signals = [s for ss in session_signals for s in ss["signals"]]
     log(f"\nFinal candidate count: {len(all_candidates)}, correction signals: {len(all_signals)}")
+    fail_if_extraction_backend_failed()
 
     if _LANGFUSE_ENABLED:
         try:
@@ -1149,7 +1260,7 @@ def main():
 
     if not all_candidates and not all_signals:
         log("No candidates or correction signals to stage.")
-        if not FULL_HISTORY:
+        if not FULL_HISTORY and not NO_WATERMARK:
             save_watermark(new_watermark)
         return
 

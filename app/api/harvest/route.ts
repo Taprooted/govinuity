@@ -78,7 +78,20 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
 }
 
 const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "";
-const DEFAULT_SESSION_DIR = path.join(HOME, ".claude", "projects");
+
+function claudeProjectDirFor(projectPath: string): string {
+  return path.join(HOME, ".claude", "projects", path.resolve(projectPath).replace(/[^A-Za-z0-9_-]/g, "-"));
+}
+
+function defaultSessionDir(): string {
+  const configured = process.env.GOVINUITY_SESSION_DIR;
+  if (configured) return configured;
+
+  const currentProjectDir = claudeProjectDirFor(process.cwd());
+  if (fs.existsSync(currentProjectDir)) return currentProjectDir;
+
+  return path.join(HOME, ".claude", "projects");
+}
 
 function tildify(p: string): string {
   if (HOME && p.startsWith(HOME)) return "~" + p.slice(HOME.length);
@@ -87,7 +100,7 @@ function tildify(p: string): string {
 
 export async function GET() {
   const meta = readMeta();
-  const sessionDir = tildify(process.env.GOVINUITY_SESSION_DIR ?? DEFAULT_SESSION_DIR);
+  const sessionDir = tildify(defaultSessionDir());
   return Response.json({ meta, sessionDir });
 }
 
@@ -105,6 +118,9 @@ export async function POST(request: Request) {
   const text: string | undefined = typeof body.text === "string" ? body.text : undefined;
   const source: string = typeof body.source === "string" && body.source.trim() ? body.source.trim() : "paste";
   const sessionDir: string | undefined = typeof body.sessionDir === "string" && body.sessionDir.trim() ? body.sessionDir.trim() : undefined;
+  const ignoreWatermark: boolean = Boolean(body.ignoreWatermark);
+  const maxFiles: number = Math.max(1, Math.min(100, Number(body.maxFiles) || 25));
+  const scriptEnv = { ...process.env, GOVINUITY_URL: process.env.GOVINUITY_URL || new URL(request.url).origin };
 
   const scriptPath = path.join(process.cwd(), "scripts", "harvest_proposals.py");
   if (!fs.existsSync(scriptPath)) {
@@ -121,6 +137,7 @@ export async function POST(request: Request) {
       const { stdout, stderr } = await runScript(
         ["scripts/harvest_proposals.py", "--submit", "--input", "-", "--source", source],
         text,
+        scriptEnv,
       );
       const duration_ms = Date.now() - started;
       const combined = (stdout + "\n" + stderr).trim();
@@ -137,10 +154,12 @@ export async function POST(request: Request) {
   writeMeta({ ...meta, running: true, started_at: new Date().toISOString(), running_hours: hours });
   const started = Date.now();
 
-  const env = sessionDir ? { ...process.env, GOVINUITY_SESSION_DIR: sessionDir } : process.env;
+  const env = { ...scriptEnv, GOVINUITY_SESSION_DIR: sessionDir || defaultSessionDir() };
+  const args = ["scripts/harvest_proposals.py", "--submit", "--since", `${hours}h`, "--max-files", String(maxFiles)];
+  if (ignoreWatermark) args.push("--no-watermark");
 
   return new Promise<Response>((resolve) => {
-    runScript(["scripts/harvest_proposals.py", "--submit", "--since", `${hours}h`], undefined, env)
+    runScript(args, undefined, env)
       .then(({ stdout, stderr }) => {
         const duration_ms = Date.now() - started;
         const combined = (stdout + "\n" + stderr).trim();

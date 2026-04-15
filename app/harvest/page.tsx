@@ -44,6 +44,8 @@ export default function HarvestPage() {
   const [sessionDir, setSessionDir] = useState("");
   const [configuredSessionDir, setConfiguredSessionDir] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [ignoreWatermark, setIgnoreWatermark] = useState(false);
+  const [maxFiles, setMaxFiles] = useState(25);
   const [autoInterval, setAutoInterval] = useState<number | null>(null);
   const [nextRunIn, setNextRunIn] = useState<string | null>(null);
 
@@ -116,7 +118,7 @@ export default function HarvestPage() {
     const payload =
       mode === "text"
         ? { mode: "text", text: pastedText, source: effectiveSource }
-        : { mode: "sessions", hours: effectiveHours, sessionDir: sessionDir.trim() || undefined };
+        : { mode: "sessions", hours: effectiveHours, sessionDir: sessionDir.trim() || undefined, ignoreWatermark, maxFiles };
 
     const res = await fetch("/api/harvest", {
       method: "POST",
@@ -205,6 +207,28 @@ export default function HarvestPage() {
                   <p className="text-xs text-[var(--muted)]">
                     Override for this run only, or set <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVINUITY_SESSION_DIR</code> in <code className="font-mono bg-[var(--panel-2)] px-1 rounded">.env.local</code> to change the default permanently.
                   </p>
+                  <div className="grid gap-2 pt-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                    <label className="space-y-1">
+                      <span className="block text-xs text-[var(--muted)]">Maximum session files</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={maxFiles}
+                        onChange={(e) => setMaxFiles(Math.max(1, Math.min(100, Number(e.target.value) || 25)))}
+                        className="w-28 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--brand-gold)] focus:outline-none"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                      <input
+                        type="checkbox"
+                        checked={ignoreWatermark}
+                        onChange={(e) => setIgnoreWatermark(e.target.checked)}
+                        className="accent-[var(--brand-gold)]"
+                      />
+                      Rescan already-seen turns
+                    </label>
+                  </div>
                 </div>
               )}
             </div>

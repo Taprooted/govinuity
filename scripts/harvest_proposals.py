@@ -432,8 +432,12 @@ def extract_chunk_candidates_instructor(
     chunk: list[dict], idx: int, total: int
 ) -> list[dict]:
     """Structured extraction using Instructor + Anthropic SDK."""
-    import instructor
-    import anthropic
+    try:
+        import instructor
+        import anthropic
+    except Exception as e:
+        log(f"    Chunk {idx}: Instructor unavailable — falling back to Claude CLI ({e})")
+        return extract_chunk_candidates_subprocess(chunk, idx, total)
 
     trust = classify_source_trust(chunk)
     turns_text = "\n\n".join(
@@ -565,8 +569,12 @@ Return only signals with clear evidence. If the transcript shows no continuity-r
 
 def detect_corrections_instructor(turns: list[dict]) -> list[dict]:
     """Detect correction signals using Instructor + Anthropic SDK."""
-    import instructor
-    import anthropic
+    try:
+        import instructor
+        import anthropic
+    except Exception as e:
+        log(f"  Correction detection: Instructor unavailable — falling back to Claude CLI ({e})")
+        return detect_corrections_subprocess(turns)
 
     sample = turns[-CORRECTION_SAMPLE_TURNS:]
     turns_text = "\n\n".join(

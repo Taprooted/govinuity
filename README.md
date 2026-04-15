@@ -147,7 +147,7 @@ The harvest script can also be run directly, which is useful for cron jobs or CI
 
 `scripts/harvest_proposals.py` uses Instructor + Anthropic SDK when available, or the Claude CLI as a fallback. It deduplicates against existing decisions and stages results for human review. Nothing is submitted without an explicit `--submit` flag.
 
-**Requirements:** Python 3.9+. For Instructor extraction: `pip install pydantic anthropic instructor python-dotenv`. Without Anthropic/Instructor, the script can fall back to the Claude CLI if installed and authenticated separately; `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically.
+**Requirements:** Python 3.9+. For Instructor extraction: `pip install pydantic anthropic instructor python-dotenv`. On Python 3.9, some Instructor/Pydantic versions may also require `eval_type_backport`; without a working Anthropic/Instructor path, the script falls back to the Claude CLI if installed and authenticated separately. `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically.
 
 ```bash
 # Submit proposals from the last 48 hours

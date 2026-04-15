@@ -44,7 +44,7 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
   return new Promise((resolve, reject) => {
     const proc = spawn("python3", args, {
       cwd: process.cwd(),
-      timeout: 120_000,
+      timeout: 600_000,
       env: env ?? process.env,
     });
 
@@ -58,7 +58,13 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
       proc.stdin.end();
     }
 
-    proc.on("close", (code) => {
+    proc.on("close", (code, signal) => {
+      if (signal) {
+        const combined = (stdout + "\n" + stderr).trim();
+        const tail = combined.split("\n").filter(Boolean).slice(-12).join("\n");
+        reject(new Error(tail || `Harvest script was terminated by ${signal}`));
+        return;
+      }
       if (code && code !== 0) {
         const combined = (stdout + "\n" + stderr).trim();
         const tail = combined.split("\n").filter(Boolean).slice(-12).join("\n");

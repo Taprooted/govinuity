@@ -102,12 +102,22 @@ function conflictList(conflicts?: ProposedDecision["possible_conflicts"]): strin
   return conflicts.map((c) => (typeof c === "string" ? c : c.title ?? c.id));
 }
 
-// Sort: no conflicts first, then conflicting; within group preserve order
+function reversibilityRank(r?: "low" | "medium" | "high") {
+  if (r === "low") return 0;
+  if (r === "medium") return 1;
+  return 2;
+}
+
+// Sort by review risk: hard-to-reverse proposals first, then conflicts, then confidence.
 function sortProposals(proposals: ProposedDecision[]): ProposedDecision[] {
   return [...proposals].sort((a, b) => {
-    const aC = conflictList(a.possible_conflicts).length > 0 ? 1 : 0;
-    const bC = conflictList(b.possible_conflicts).length > 0 ? 1 : 0;
-    return aC - bC;
+    const rA = reversibilityRank(a.reversibility);
+    const rB = reversibilityRank(b.reversibility);
+    if (rA !== rB) return rA - rB;
+    const cA = conflictList(a.possible_conflicts).length > 0 ? 0 : 1;
+    const cB = conflictList(b.possible_conflicts).length > 0 ? 0 : 1;
+    if (cA !== cB) return cA - cB;
+    return (b.confidence ?? 0) - (a.confidence ?? 0);
   });
 }
 
@@ -288,14 +298,14 @@ export default function ReviewPage() {
           <div>
             <p className="text-sm font-medium mb-1">No proposals yet.</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Proposals enter the queue when an agent (or you) submits a candidate decision. Once they arrive, you review, ratify, defer, or reject them here.
+              Candidate decisions appear here after they are surfaced from work or submitted directly. Review decides what becomes reusable future context.
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Automated surfacing — harvest script</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Surface from agent work</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              The harvest script reads Claude Code session files and extracts candidate decisions automatically.
+              Harvest scans session files or pasted transcripts and routes qualifying candidates into this queue.
             </p>
             <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs leading-relaxed overflow-x-auto text-[var(--foreground)]">{`# Preview without submitting
 python3 scripts/harvest_proposals.py --dry-run
@@ -305,7 +315,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Manual submission</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Submit a candidate directly</p>
             <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs leading-relaxed overflow-x-auto text-[var(--foreground)]">{`curl -X POST http://localhost:3000/api/decisions \\
   -H "Content-Type: application/json" \\
   -d '{"body": "...", "status": "proposed", "summary_for_human": "..."}'`}</pre>
@@ -345,7 +355,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     }`}
                   >
                     {/* Meta row */}
-                    <div className="mb-2 flex items-center gap-2">
+                    <div className="mb-2 flex items-center gap-2 flex-wrap">
                       {cls && <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">{cls}</span>}
                       {rev && (
                         <span className="flex items-center gap-1">
@@ -353,7 +363,14 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                           <span className={`text-[10px] ${rev.color}`}>{rev.text}</span>
                         </span>
                       )}
-                      {conflicts.length > 0 && <StatusBadge text="conflict" tone="warning" />}
+                      {conflicts.length > 0 && (
+                        <span className="rounded border border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--brand-gold)]">
+                          {conflicts.length} conflict{conflicts.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {p.confidence !== undefined && (
+                        <span className="text-[10px] font-mono text-[var(--muted)]">{Math.round(p.confidence * 100)}%</span>
+                      )}
                       <span className="ml-auto text-[10px] text-[var(--muted)]">{timeAgo(p.ts)}</span>
                     </div>
 
@@ -413,6 +430,11 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                         {revLabel.text}
                       </span>
                     )}
+                    {selectedProposal.confidence !== undefined && (
+                      <span className="font-mono" title="Extraction confidence">
+                        {Math.round(selectedProposal.confidence * 100)}% confidence
+                      </span>
+                    )}
                     <span className="ml-auto">{timeAgo(selectedProposal.ts)}</span>
                   </div>
 
@@ -423,9 +445,12 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
 
                   {/* ③ What does it mean — the primary answer */}
                   {selectedProposal.summary_for_human && (
-                    <p className="text-sm leading-relaxed text-[var(--foreground)]">
-                      {selectedProposal.summary_for_human}
-                    </p>
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">What it means</p>
+                      <p className="text-sm font-medium leading-relaxed text-[var(--foreground)]">
+                        {selectedProposal.summary_for_human}
+                      </p>
+                    </div>
                   )}
 
                   {/* ④ Why is it durable — visible by default, not hidden */}
@@ -436,11 +461,19 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     </div>
                   )}
 
-                  {/* ⑤ Conflict warning */}
+                  {/* ⑤ Why surfaced — visible by default */}
+                  {selectedProposal.why_surfaced && (
+                    <div>
+                      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Why surfaced</p>
+                      <p className="text-xs italic leading-relaxed text-[var(--muted)]">{selectedProposal.why_surfaced}</p>
+                    </div>
+                  )}
+
+                  {/* ⑥ Conflict warning */}
                   {hasConflicts && (
-                    <div className="rounded border border-amber-800/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
+                    <div className="rounded border border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] px-3 py-2 text-xs text-[var(--brand-gold)]">
                       <p className="mb-1 font-medium">Possible conflicts</p>
-                      <ul className="space-y-0.5 text-amber-400/80">
+                      <ul className="space-y-0.5">
                         {conflictList(selectedProposal.possible_conflicts).map((c, i) => (
                           <li key={i}>· {c}</li>
                         ))}
@@ -448,32 +481,23 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     </div>
                   )}
 
-                  {/* ⑥ Body + aanleiding — expandable evidence */}
+                  {/* ⑦ Full statement — expandable */}
                   <div>
                     <button
                       onClick={() => setDetailExpanded((v) => !v)}
                       className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
                     >
-                      Evidence
+                      Full statement
                       <span className="text-[9px]">{detailExpanded ? "▲" : "▼"}</span>
                     </button>
-                    {detailExpanded && (
-                      <div className="space-y-3">
-                        <p className="text-xs leading-relaxed text-[var(--foreground)]">{selectedProposal.body}</p>
-                        {selectedProposal.why_surfaced && (
-                          <div>
-                            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Trigger</p>
-                            <p className="text-xs italic leading-relaxed text-[var(--muted)]">{selectedProposal.why_surfaced}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {!detailExpanded && (
+                    {detailExpanded ? (
+                      <p className="text-xs leading-relaxed text-[var(--foreground)]">{selectedProposal.body}</p>
+                    ) : (
                       <p className="line-clamp-2 text-xs leading-relaxed text-[var(--muted)]">{selectedProposal.body}</p>
                     )}
                   </div>
 
-                  {/* ⑦ Related approved decisions */}
+                  {/* ⑧ Related approved decisions */}
                   {relatedDecisions.length > 0 && (
                     <div>
                       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Related decisions</p>
@@ -491,22 +515,29 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     </div>
                   )}
 
-                  {/* ⑧ Actions */}
-                  <div className="border-t border-[var(--border)] pt-4 flex gap-2">
-                    {[
-                      { status: "approved" as const, label: "Ratify", cls: "border-green-800 text-green-300 hover:bg-green-950 flex-1" },
-                      { status: "deferred" as const, label: "Defer", cls: "border-[var(--border)] text-[var(--muted)] hover:border-yellow-800 hover:text-yellow-300" },
-                      { status: "rejected" as const, label: "Reject", cls: "border-[var(--border)] text-[var(--muted)] hover:border-red-800 hover:text-red-300" },
-                    ].map((action) => (
-                      <button
-                        key={action.status}
-                        onClick={() => actOnProposal(selectedProposal.id, action.status)}
-                        disabled={proposalActing === selectedProposal.id}
-                        className={`rounded border px-3 py-2 text-sm transition-colors disabled:opacity-40 ${action.cls}`}
-                      >
-                        {proposalActing === selectedProposal.id ? "…" : action.label}
-                      </button>
-                    ))}
+                  {/* ⑨ Actions */}
+                  <div className="border-t border-[var(--border)] pt-4 space-y-2">
+                    <div className="flex gap-2">
+                      {[
+                        { status: "approved" as const, label: "Ratify", cls: "border-green-800 text-green-300 hover:bg-green-950 flex-1" },
+                        { status: "deferred" as const, label: "Defer", cls: "border-[var(--border)] text-[var(--muted)] hover:border-yellow-800 hover:text-yellow-300" },
+                        { status: "rejected" as const, label: "Reject", cls: "border-[var(--border)] text-[var(--muted)] hover:border-red-800 hover:text-red-300" },
+                      ].map((action) => (
+                        <button
+                          key={action.status}
+                          onClick={() => actOnProposal(selectedProposal.id, action.status)}
+                          disabled={proposalActing === selectedProposal.id}
+                          className={`rounded border px-3 py-2 text-sm transition-colors disabled:opacity-40 ${action.cls}`}
+                        >
+                          {proposalActing === selectedProposal.id ? "…" : action.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-[var(--muted)] leading-relaxed">
+                      <span className="text-green-400/80">Ratify</span> — decision becomes eligible for injection into future sessions.{" "}
+                      <span className="text-yellow-400/70">Defer</span> — hold for later; not injected.{" "}
+                      <span className="text-red-400/70">Reject</span> — excluded permanently; kept in history.
+                    </p>
                   </div>
                 </div>
               )}

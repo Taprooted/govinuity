@@ -254,13 +254,15 @@ export default function HomePage() {
         </button>
         <span className="text-xs text-[var(--muted)]">
           {harvestResult
-            ? `Done · ${harvestResult.submitted} proposals submitted · ${harvestResult.annotations} annotations posted`
+            ? harvestResult.submitted > 0 || harvestResult.annotations > 0
+              ? `Harvest complete · ${harvestResult.submitted} proposals surfaced · ${harvestResult.annotations} outcome signals logged`
+              : "Harvest complete · no qualifying proposals or outcome signals found"
             : harvestMeta?.last_run_ts
-            ? `Last run ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted ?? 0} submitted`
-            : "Extract candidate decisions from Claude Code session files (last 48 h)"}
+            ? `Last harvest ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted ?? 0} proposals surfaced`
+            : "Surface candidate decisions from recent agent session files"}
         </span>
         <Link href="/harvest" className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] shrink-0">
-          Configure →
+          Harvest settings →
         </Link>
       </div>
 
@@ -380,18 +382,18 @@ export default function HomePage() {
       {pendingReview === 0 && ratifiedCount === 0 && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-6 py-8 space-y-5">
           <div>
-            <p className="text-sm font-medium mb-1">Nothing here yet.</p>
+            <p className="text-sm font-medium mb-1">No continuity objects yet.</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Proposals enter Govinuity when an agent (or you) submits a candidate decision. Once proposals arrive, review and ratify them on the{" "}
-              <Link href="/review" className="text-[var(--accent)] hover:underline">Review</Link> page. Ratified decisions become eligible for injection into agent context.
+              Govinuity starts with candidate decisions. Surface them from ongoing work, review them on the{" "}
+              <Link href="/review" className="text-[var(--accent)] hover:underline">Review</Link> page, and only ratified decisions become reusable future context.
             </p>
           </div>
 
           {/* Seed data */}
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Try with example data</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Load an example loop</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Load a small set of example proposals and ratified decisions to see how the review queue and decision log work before connecting real session data.
+              Add a small set of proposals and ratified decisions so the review queue, decision log, and injection path are visible before connecting real session data.
             </p>
             {seedDone ? (
               <p className="text-xs text-[var(--brand-green)]">Example data loaded — check <Link href="/review" className="underline hover:opacity-80">Review</Link> and <Link href="/decisions" className="underline hover:opacity-80">Decisions</Link>.</p>
@@ -407,7 +409,7 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Or submit a proposal manually</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Submit a candidate directly</p>
             <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs leading-relaxed overflow-x-auto text-[var(--foreground)]">{`curl -X POST http://localhost:3000/api/decisions \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -420,9 +422,9 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Or harvest from session files</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Surface from session files</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              The <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page scans session files from any agent tool and extracts candidate decisions automatically.
+              The <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page scans agent session files and routes candidate decisions into review.
             </p>
           </div>
         </div>
@@ -431,9 +433,9 @@ export default function HomePage() {
       {/* Surfacing pointer — visible when the app has data but no runs yet */}
       {(pendingReview > 0 || ratifiedCount > 0) && metrics?.runs.last_30d === 0 && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4 space-y-2">
-          <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Start harvesting</p>
+          <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Keep surfacing proposals</p>
           <p className="text-xs text-[var(--muted)] leading-relaxed">
-            Use the <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page to scan session files from your agent tool and keep the review queue populated automatically.
+            Use the <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page to scan agent session files and keep candidate decisions moving into review.
             Injection sessions will appear on <Link href="/runs" className="text-[var(--accent)] hover:underline">Runs</Link> once you call{" "}
             <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GET /api/memory</code> or generate a <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVERNED_CONTINUITY.md</code> from{" "}
             <Link href="/decisions" className="text-[var(--accent)] hover:underline">Decisions</Link>.

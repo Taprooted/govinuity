@@ -143,7 +143,7 @@ export default function HarvestPage() {
     <div className="space-y-6">
       <PageHeader
         title="Harvest"
-        description="Surface candidate decisions from your agent sessions. Extracted proposals go to Review — nothing becomes active context until you ratify it."
+        description="Surface candidate decisions and continuity signals from agent work. Harvested candidates go to Review; nothing becomes reusable context until ratified."
       />
 
       {/* Main harvest card */}
@@ -169,7 +169,7 @@ export default function HarvestPage() {
           ))}
           {meta?.last_run_ts && !running && (
             <span className="ml-auto text-xs text-[var(--muted)]">
-              Last run {timeAgo(meta.last_run_ts)} · {meta.last_submitted ?? 0} submitted · {meta.last_annotations ?? 0} annotations
+              Last harvest {timeAgo(meta.last_run_ts)} · {meta.last_submitted ?? 0} proposals surfaced · {meta.last_annotations ?? 0} signals logged
             </span>
           )}
           {running && <span className="ml-auto text-xs text-[var(--brand-gold)] animate-pulse">Harvesting…</span>}
@@ -179,8 +179,8 @@ export default function HarvestPage() {
         {mode === "sessions" && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Scans JSONL session files in a directory, extracts candidate decisions, and submits them as proposals.
-              Also detects correction signals — decisions followed, ignored, or requiring restatement — and posts them as run annotations.
+              Scans JSONL session files, surfaces candidate decisions, and submits qualifying candidates to Review.
+              It also looks for continuity outcome signals: decisions followed, ignored, or needing restatement.
             </p>
             <div>
               <button
@@ -235,7 +235,7 @@ export default function HarvestPage() {
                 disabled={!canSubmit}
                 className="rounded bg-[var(--brand-green)] px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-85 disabled:opacity-40"
               >
-                {running ? "Harvesting…" : `Harvest last ${effectiveHours}h`}
+                {running ? "Harvesting…" : `Scan last ${effectiveHours}h`}
               </button>
             </div>
             <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
@@ -265,8 +265,8 @@ export default function HarvestPage() {
         {mode === "text" && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              Paste any conversation export — labeled turns (<code className="font-mono bg-[var(--panel-2)] px-1 rounded">User: / Assistant:</code>),
-              a JSON messages array, or raw text. Works with output from any agent tool.
+              Paste a conversation export: labeled turns (<code className="font-mono bg-[var(--panel-2)] px-1 rounded">User: / Assistant:</code>),
+              a JSON messages array, or raw text. This is the fastest way to test proposal surfacing.
             </p>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-[var(--muted)]">Source</span>
@@ -305,7 +305,7 @@ export default function HarvestPage() {
               disabled={!canSubmit}
               className="rounded bg-[var(--brand-green)] px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-85 disabled:opacity-40"
             >
-              {running ? "Extracting…" : "Extract proposals"}
+              {running ? "Extracting…" : "Surface proposals"}
             </button>
           </div>
         )}
@@ -313,11 +313,17 @@ export default function HarvestPage() {
         {/* Result / error */}
         {result && (
           <div className="space-y-1.5 pt-3 border-t border-[var(--border)]">
-            <p className="text-xs text-[var(--brand-green)]">
-              Done · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} submitted to{" "}
-              <Link href="/review" className="underline hover:opacity-80">Review</Link>
-              {" "}· {result.annotations} annotation{result.annotations !== 1 ? "s" : ""} posted
-            </p>
+            {result.submitted > 0 || result.annotations > 0 ? (
+              <p className="text-xs text-[var(--brand-green)]">
+                Harvest complete · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} surfaced to{" "}
+                <Link href="/review" className="underline hover:opacity-80">Review</Link>
+                {" "}· {result.annotations} outcome signal{result.annotations !== 1 ? "s" : ""} logged
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--muted)]">
+                Harvest complete · no qualifying proposals or outcome signals were found. Try a longer lookback, paste a denser session, or check the session directory under Advanced.
+              </p>
+            )}
             {result.output.length > 0 && (
               <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-2 text-xs text-[var(--muted)] leading-relaxed overflow-x-auto max-h-48">{result.output.join("\n")}</pre>
             )}
@@ -328,9 +334,9 @@ export default function HarvestPage() {
 
       {/* CLI reference */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4 space-y-2">
-        <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">CLI / automation</p>
+        <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Run from the CLI</p>
         <p className="text-xs text-[var(--muted)] leading-relaxed">
-          Run the harvest script directly for cron jobs or CI pipelines. The <code className="font-mono bg-[var(--panel-2)] px-1 rounded">--input</code> flag accepts any file or stdin.
+          Use the script for cron jobs, local automation, or debugging a harvest outside the UI. The <code className="font-mono bg-[var(--panel-2)] px-1 rounded">--input</code> flag accepts any file or stdin.
         </p>
         <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs text-[var(--foreground)] leading-relaxed overflow-x-auto">{`# Auto-scan session files (last 48h)
 python3 scripts/harvest_proposals.py --submit
@@ -344,7 +350,7 @@ cat session.txt | python3 scripts/harvest_proposals.py --input - --source langgr
 
       {/* Manual proposal */}
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4 space-y-2">
-        <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Submit a proposal directly</p>
+        <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Submit a candidate directly</p>
         <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs text-[var(--foreground)] leading-relaxed overflow-x-auto">{`curl -X POST http://localhost:3000/api/decisions \\
   -H "Content-Type: application/json" \\
   -d '{

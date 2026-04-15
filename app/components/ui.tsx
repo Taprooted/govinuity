@@ -468,7 +468,7 @@ export function SidebarNav() {
 
       <div className="px-4 py-3 border-t border-[var(--border)]">
         <p className="text-[10px] leading-relaxed text-[var(--muted)] opacity-60">
-          Local only · no authentication · do not expose to shared or networked environments
+          Trusted local use only · no authentication
         </p>
       </div>
     </aside>

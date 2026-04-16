@@ -42,7 +42,6 @@ function normalizeProvenance(value: unknown, sourceType: string) {
   return {
     ...raw,
     linkType: trimString(raw.linkType) ?? sourceType,
-    derivedFrom: normalizeArray(raw.derivedFrom),
   };
 }
 

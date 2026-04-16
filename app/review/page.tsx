@@ -19,7 +19,7 @@ type ProposedDecision = {
   context?: string;
   source_type?: string;
   source_agent?: string;
-  provenance?: { task_id?: string; artifact_type?: string; linkType?: string; derivedFrom?: unknown[] };
+  provenance?: { task_id?: string; artifact_type?: string; linkType?: string };
   review_contract?: {
     issues?: string[];
     status?: "complete" | "needs_context" | "low_signal";
@@ -135,23 +135,11 @@ function reversibilityRank(r?: "low" | "medium" | "high") {
 }
 
 function contractIssues(p?: ProposedDecision | null): string[] {
-  if (!p) return [];
-  const issues = p.review_contract?.issues ?? [];
-  if (issues.length > 0) return issues;
-  const fallback: string[] = [];
-  if (!p.summary_for_human) fallback.push("missing human summary");
-  if (["harvest", "agent", "import"].includes(p.source_type ?? "") && !p.why_surfaced) fallback.push("missing why surfaced");
-  if (!p.proposal_class) fallback.push("missing proposal class");
-  if (p.confidence === undefined) fallback.push("missing confidence");
-  if (!sourceLabel(p) && !p.provenance?.linkType) fallback.push("missing source provenance");
-  return fallback;
+  return p?.review_contract?.issues ?? [];
 }
 
 function contractStatus(p?: ProposedDecision | null): "complete" | "needs_context" | "low_signal" {
-  if (!p) return "needs_context";
-  if (p.review_contract?.status) return p.review_contract.status;
-  if (typeof p.confidence === "number" && p.confidence < 0.6) return "low_signal";
-  return contractIssues(p).length > 0 ? "needs_context" : "complete";
+  return p?.review_contract?.status ?? "complete";
 }
 
 function contractBadge(p?: ProposedDecision | null) {
@@ -178,9 +166,6 @@ function sortProposals(proposals: ProposedDecision[]): ProposedDecision[] {
     const cA = conflictList(a.possible_conflicts).length > 0 ? 0 : 1;
     const cB = conflictList(b.possible_conflicts).length > 0 ? 0 : 1;
     if (cA !== cB) return cA - cB;
-    const sA = contractStatus(a) === "complete" ? 0 : contractStatus(a) === "needs_context" ? 1 : 2;
-    const sB = contractStatus(b) === "complete" ? 0 : contractStatus(b) === "needs_context" ? 1 : 2;
-    if (sA !== sB) return sA - sB;
     return (b.confidence ?? 0) - (a.confidence ?? 0);
   });
 }

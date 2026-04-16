@@ -265,55 +265,45 @@ function DecisionCard({ d, onRevoked, onUpdated }: {
             {d.transfer_tier && <span>Injection: <span className="text-[var(--foreground)]">{TIER_LABEL[d.transfer_tier]?.text ?? d.transfer_tier}</span></span>}
           </div>
 
-          <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Continuity outcomes</p>
-              {outcomeLoading && <span className="text-xs text-[var(--muted)]">Loading…</span>}
-            </div>
-            {outcomeError ? (
-              <p className="text-xs text-red-400">{outcomeError}</p>
-            ) : outcome ? (
+          {outcomeError && (
+            <p className="text-xs text-red-400">{outcomeError}</p>
+          )}
+          {outcome && outcome.recent_runs.length > 0 && (
+            <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+              <p className="mb-2 text-xs uppercase tracking-wider text-[var(--muted)]">Continuity outcomes</p>
               <div className="space-y-2">
-                {outcome.recent_runs.length > 0 ? (
-                  <>
-                    <div className="flex flex-wrap gap-3 text-xs">
-                      <span><span className="text-indigo-400">{outcome.summary.injected_count}</span> injected</span>
-                      <span><span className="text-[var(--foreground)]">{outcome.summary.excluded_count}</span> excluded</span>
-                      <span><span className="text-[var(--foreground)]">{outcome.summary.annotation_count}</span> outcome signals</span>
-                    </div>
-                    {(Object.keys(outcome.summary.annotation_counts).length > 0 || Object.keys(outcome.summary.exclusion_reasons).length > 0) && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {Object.entries(outcome.summary.annotation_counts).map(([type, count]) => (
-                          <span key={type} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
-                            {OUTCOME_LABELS[type] ?? type}: {count}
-                          </span>
-                        ))}
-                        {Object.entries(outcome.summary.exclusion_reasons).map(([reason, count]) => (
-                          <span key={reason} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
-                            excluded: {reason} ({count})
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="space-y-1">
-                      {outcome.recent_runs.slice(0, 3).map((run) => (
-                        <div key={`${run.run_id}-${run.result}`} className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                          <span className={run.result === "injected" ? "text-indigo-400" : "text-amber-400"}>{run.result}</span>
-                          <span className="font-mono">{run.run_id.slice(0, 16)}…</span>
-                          {run.reason && <span>{run.reason}</span>}
-                          <span className="ml-auto">{timeAgo(run.ts)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-xs text-[var(--muted)]">No continuity runs have referenced this decision yet.</p>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span><span className="text-indigo-400">{outcome.summary.injected_count}</span> injected</span>
+                  <span><span className="text-[var(--foreground)]">{outcome.summary.excluded_count}</span> excluded</span>
+                  <span><span className="text-[var(--foreground)]">{outcome.summary.annotation_count}</span> outcome signals</span>
+                </div>
+                {(Object.keys(outcome.summary.annotation_counts).length > 0 || Object.keys(outcome.summary.exclusion_reasons).length > 0) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(outcome.summary.annotation_counts).map(([type, count]) => (
+                      <span key={type} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
+                        {OUTCOME_LABELS[type] ?? type}: {count}
+                      </span>
+                    ))}
+                    {Object.entries(outcome.summary.exclusion_reasons).map(([reason, count]) => (
+                      <span key={reason} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
+                        excluded: {reason} ({count})
+                      </span>
+                    ))}
+                  </div>
                 )}
+                <div className="space-y-1">
+                  {outcome.recent_runs.slice(0, 3).map((run) => (
+                    <div key={`${run.run_id}-${run.result}`} className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                      <span className={run.result === "injected" ? "text-indigo-400" : "text-amber-400"}>{run.result}</span>
+                      <span className="font-mono">{run.run_id.slice(0, 16)}…</span>
+                      {run.reason && <span>{run.reason}</span>}
+                      <span className="ml-auto">{timeAgo(run.ts)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ) : (
-              <p className="text-xs text-[var(--muted)]">Outcome data will appear after this decision is injected or excluded in a continuity run.</p>
-            )}
-          </div>
+            </div>
+          )}
 
           {d.note && !editing && (
             <div className="rounded bg-[var(--panel-2)] px-3 py-2">

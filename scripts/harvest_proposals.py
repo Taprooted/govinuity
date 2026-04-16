@@ -279,8 +279,10 @@ ARTIFACT_GUIDANCE = {
     ),
     "correction_or_lesson": (
         "This input contains a correction, failed approach, or lesson learned. Treat explicit 'do not repeat', "
-        "'we decided', 'that failed', and 'next time' language as high-salience evidence. Avoid overgeneralizing "
-        "one incident into a global rule unless the text clearly frames it as durable."
+        "'we decided', 'that failed', and 'next time' language as high-salience evidence. Prefer scoped constraints "
+        "or workflow rules that would prevent the same mistake in a future session. Avoid overgeneralizing one "
+        "incident into a global rule unless the text clearly frames it as durable. In why_surfaced, name the "
+        "correction or failed approach that made the candidate worth review."
     ),
     "subagent_report": (
         "This input is a synthesized subagent result. Extract durable conclusions, constraints, discovered facts, "
@@ -1175,9 +1177,13 @@ def harvest_text_input(text: str, source_label: str, artifact_type: str = "trans
         candidate["source_agent"] = source_label
         candidate["artifact_type"] = artifact_type
 
-    log("  Detecting correction signals…")
-    signals = detect_corrections(turns)
-    log(f"  {len(signals)} correction signal(s) detected")
+    if artifact_type == "transcript":
+        log("  Detecting correction signals…")
+        signals = detect_corrections(turns)
+        log(f"  {len(signals)} correction signal(s) detected")
+    else:
+        signals = []
+        log(f"  Skipping correction signal detection for {artifact_type} artifact")
 
     return len(all_raw), len(consolidated), consolidated, signals
 

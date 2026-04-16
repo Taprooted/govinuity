@@ -184,6 +184,9 @@ python3 scripts/harvest_proposals.py --input session.txt --source codex --submit
 # From a handoff or compact summary
 python3 scripts/harvest_proposals.py --input examples/harvest-handoff.txt --source codex --artifact-type handoff_summary --dry-run
 
+# From a correction or lesson learned
+python3 scripts/harvest_proposals.py --input examples/harvest-correction.txt --source codex --artifact-type correction_or_lesson --dry-run
+
 # From stdin
 cat session.txt | python3 scripts/harvest_proposals.py --input - --source cursor --submit
 ```

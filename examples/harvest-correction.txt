@@ -1,0 +1,19 @@
+Correction / lesson learned:
+
+User correction:
+Do not treat every Harvest result with zero candidates as a valid negative result. In this case extraction failed because the configured Python/Instructor path was broken and the Claude CLI fallback was not logged in.
+
+Lesson:
+When extraction dependencies fail, the Harvest UI should show a clear backend failure instead of implying that no proposals were found.
+
+User correction:
+Do not expose local filesystem paths in Harvest output or public-facing UI. Diagnostic paths are useful, but they should be sanitized by default and only shown deliberately for technical debugging.
+
+Lesson:
+Harvest output shown to users should sanitize repo paths and local session directories before rendering or storing output tails.
+
+Failed approach:
+Re-running the same controlled transcript submitted near-duplicate proposals with different titles. Title-only dedupe missed semantically equivalent continuity objects.
+
+Lesson:
+Harvest dedupe should compare title, summary, and body text before submitting candidates to Review.

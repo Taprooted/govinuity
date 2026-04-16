@@ -27,26 +27,82 @@ function validateConfidence(value: unknown): string | null {
   return null;
 }
 
+function trimString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeProvenance(value: unknown, sourceType: string) {
+  const raw = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  return {
+    ...raw,
+    linkType: trimString(raw.linkType) ?? sourceType,
+    derivedFrom: normalizeArray(raw.derivedFrom),
+  };
+}
+
+function reviewContractIssues(entry: Record<string, any>): string[] {
+  const issues: string[] = [];
+  const sourceType = entry.source_type;
+  const status = entry.status ?? entry.decision;
+  const provenance = entry.provenance && typeof entry.provenance === "object" ? entry.provenance : {};
+  const strictReviewSource = status === "proposed" && ["harvest", "agent", "import"].includes(sourceType);
+
+  if (strictReviewSource && !trimString(entry.summary_for_human)) issues.push("missing human summary");
+  if (strictReviewSource && !trimString(entry.why_surfaced)) {
+    issues.push("missing why surfaced");
+  }
+  if (strictReviewSource && !trimString(entry.proposal_class)) issues.push("missing proposal class");
+  if (typeof entry.confidence !== "number" || isNaN(entry.confidence)) issues.push("missing confidence");
+  if (!trimString(entry.source_agent) && !trimString(entry.source_type) && !trimString(provenance.linkType)) {
+    issues.push("missing source provenance");
+  }
+  return issues;
+}
+
 function normalizeEntry(raw: any) {
   const resolved = withResolvedProject(raw);
 
   // Normalize status: v2 entries have `status`, v1 entries have `decision`
   const status = resolved.status ?? normalizeDecisionStatus(resolved.decision) ?? resolved.decision;
+  const confidence = resolved.confidence == null ? undefined : Number(resolved.confidence);
+  const entry = {
+    ...resolved,
+    confidence: confidence == null || isNaN(confidence) ? resolved.confidence : confidence,
+    provenance: normalizeProvenance(resolved.provenance, resolved.source_type ?? "direct"),
+  };
 
   // Always expose both `status` (v2) and `decision` (v1 compat alias) so existing UI keeps working
-  return {
-    ...resolved,
+  const normalized = {
+    ...entry,
     status,
     decision: status,
     // Also expose `body` (v2) and `proposal` (v1 compat alias)
-    body: resolved.body ?? resolved.proposal,
-    proposal: resolved.body ?? resolved.proposal,
+    body: entry.body ?? entry.proposal,
+    proposal: entry.body ?? entry.proposal,
     // Expose `created_at` (v2) and `ts` (v1 compat alias)
-    created_at: resolved.created_at ?? resolved.ts,
-    ts: resolved.created_at ?? resolved.ts,
+    created_at: entry.created_at ?? entry.ts,
+    ts: entry.created_at ?? entry.ts,
     // Synthesize legacy context for UI consumers that still depend on it;
     // v2 entries omit context in storage but scope_ref holds the same value
-    context: resolved.context ?? resolved.scope_ref ?? null,
+    context: entry.context ?? entry.scope_ref ?? null,
+  };
+  const issues = reviewContractIssues(normalized);
+  return {
+    ...normalized,
+    review_contract: {
+      issues,
+      status: typeof normalized.confidence === "number" && normalized.confidence < 0.6
+        ? "low_signal"
+        : issues.length > 0
+        ? "needs_context"
+        : "complete",
+    },
   };
 }
 
@@ -137,16 +193,18 @@ export async function POST(request: Request) {
   const title = titleRaw.length > 120 ? titleRaw.slice(0, 120) + "…" : titleRaw;
   const requestedSourceType = body.source_type ?? (source === "harvest" ? "harvest" : "direct");
   const sourceType = VALID_SOURCE_TYPES.has(requestedSourceType) ? requestedSourceType : "direct";
+  const confidenceValue = body.confidence == null ? 0.8 : Number(body.confidence);
+  const provenance = normalizeProvenance(body.provenance, sourceType);
 
   const entry: Record<string, unknown> = {
     id: `dec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     project_id: project ?? null,
     title,
     body: bodyText,
-    rationale: body.rationale ?? "",
+    rationale: trimString(body.rationale) ?? "",
     source_type: sourceType,
-    source_id: body.source_id ?? null,
-    source_agent: body.source_agent ?? source ?? null,
+    source_id: trimString(body.source_id),
+    source_agent: trimString(body.source_agent) ?? trimString(source),
     source_loop: null,
     ratified_by: normalizedStatus === "approved" ? (ratified_by?.trim() ?? null) : null,
     created_at: now,
@@ -154,26 +212,26 @@ export async function POST(request: Request) {
     status: normalizedStatus,
     scope: scopeValue,
     scope_ref: body.scope_ref ?? project ?? null,
-    confidence: body.confidence ?? 0.8,
+    confidence: confidenceValue,
     transfer_tier: tierValue,
     effective_until: body.effective_until ?? null,
     review_after: body.review_after ?? null,
-    supersedes: [],
+    supersedes: normalizeArray(body.supersedes),
     superseded_by: null,
-    related_objects: [],
-    assumptions: body.assumptions ?? [],
-    revisit_trigger: body.revisit_trigger ?? null,
-    reuse_instructions: body.reuse_instructions ?? null,
-    provenance: body.provenance ?? { linkType: sourceType, derivedFrom: [] },
-    tags: body.tags ?? [],
-    context_keys: body.context_keys ?? (project ? [`project:${project}`] : []),
+    related_objects: normalizeArray(body.related_objects),
+    assumptions: normalizeArray(body.assumptions),
+    revisit_trigger: trimString(body.revisit_trigger),
+    reuse_instructions: trimString(body.reuse_instructions),
+    provenance,
+    tags: normalizeArray(body.tags),
+    context_keys: Array.isArray(body.context_keys) ? body.context_keys : (project ? [`project:${project}`] : []),
     note: note?.trim() ?? null,
     // Governance / harvest fields
-    summary_for_human: body.summary_for_human?.trim() ?? null,
-    why_surfaced: body.why_surfaced?.trim() ?? null,
+    summary_for_human: trimString(body.summary_for_human),
+    why_surfaced: trimString(body.why_surfaced),
     reversibility: ["low", "medium", "high"].includes(body.reversibility) ? body.reversibility : null,
-    possible_conflicts: Array.isArray(body.possible_conflicts) ? body.possible_conflicts : [],
-    proposal_class: body.proposal_class?.trim() ?? null,
+    possible_conflicts: normalizeArray(body.possible_conflicts),
+    proposal_class: trimString(body.proposal_class),
     // Legacy read-compat aliases — do not write new logic against these
     decision: normalizedStatus,
     proposal: bodyText,
@@ -205,7 +263,12 @@ export async function POST(request: Request) {
       @follow_up_state, @context
     )
   `).run(serialized);
-  return Response.json({ ok: true, entry });
+  const normalizedEntry = normalizeEntry(entry);
+  return Response.json({
+    ok: true,
+    entry: normalizedEntry,
+    warnings: normalizedEntry.review_contract?.issues ?? [],
+  });
 }
 
 export async function PATCH(request: Request) {

@@ -1045,6 +1045,7 @@ def submit_candidates(candidates: list[dict]) -> int:
             "reversibility":     c.get("reversibility", "medium"),
             "possible_conflicts": c.get("possible_conflicts", []),
             "scope":             c.get("scope", "global"),
+            "confidence":        c.get("confidence", 0.8),
             "tags":              c.get("tags", []),
             "proposal_class":    c.get("proposal_class", ""),
             "source_type":        "harvest",

@@ -19,7 +19,11 @@ type ProposedDecision = {
   context?: string;
   source_type?: string;
   source_agent?: string;
-  provenance?: { task_id?: string; artifact_type?: string };
+  provenance?: { task_id?: string; artifact_type?: string; linkType?: string; derivedFrom?: unknown[] };
+  review_contract?: {
+    issues?: string[];
+    status?: "complete" | "needs_context" | "low_signal";
+  };
   // Governance fields (v2 — may be absent on older proposals)
   summary_for_human?: string;
   why_surfaced?: string;
@@ -130,6 +134,41 @@ function reversibilityRank(r?: "low" | "medium" | "high") {
   return 2;
 }
 
+function contractIssues(p?: ProposedDecision | null): string[] {
+  if (!p) return [];
+  const issues = p.review_contract?.issues ?? [];
+  if (issues.length > 0) return issues;
+  const fallback: string[] = [];
+  if (!p.summary_for_human) fallback.push("missing human summary");
+  if (["harvest", "agent", "import"].includes(p.source_type ?? "") && !p.why_surfaced) fallback.push("missing why surfaced");
+  if (!p.proposal_class) fallback.push("missing proposal class");
+  if (p.confidence === undefined) fallback.push("missing confidence");
+  if (!sourceLabel(p) && !p.provenance?.linkType) fallback.push("missing source provenance");
+  return fallback;
+}
+
+function contractStatus(p?: ProposedDecision | null): "complete" | "needs_context" | "low_signal" {
+  if (!p) return "needs_context";
+  if (p.review_contract?.status) return p.review_contract.status;
+  if (typeof p.confidence === "number" && p.confidence < 0.6) return "low_signal";
+  return contractIssues(p).length > 0 ? "needs_context" : "complete";
+}
+
+function contractBadge(p?: ProposedDecision | null) {
+  const status = contractStatus(p);
+  if (status === "complete") return null;
+  if (status === "low_signal") {
+    return {
+      label: "low signal",
+      cls: "border-amber-700 bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]",
+    };
+  }
+  return {
+    label: "needs context",
+    cls: "border-[var(--border)] bg-[var(--panel-2)] text-[var(--muted)]",
+  };
+}
+
 // Sort by review risk: hard-to-reverse proposals first, then conflicts, then confidence.
 function sortProposals(proposals: ProposedDecision[]): ProposedDecision[] {
   return [...proposals].sort((a, b) => {
@@ -139,6 +178,9 @@ function sortProposals(proposals: ProposedDecision[]): ProposedDecision[] {
     const cA = conflictList(a.possible_conflicts).length > 0 ? 0 : 1;
     const cB = conflictList(b.possible_conflicts).length > 0 ? 0 : 1;
     if (cA !== cB) return cA - cB;
+    const sA = contractStatus(a) === "complete" ? 0 : contractStatus(a) === "needs_context" ? 1 : 2;
+    const sB = contractStatus(b) === "complete" ? 0 : contractStatus(b) === "needs_context" ? 1 : 2;
+    if (sA !== sB) return sA - sB;
     return (b.confidence ?? 0) - (a.confidence ?? 0);
   });
 }
@@ -308,6 +350,10 @@ export default function ReviewPage() {
   const revLabel = selectedProposal ? reversibilityLabel(selectedProposal.reversibility) : null;
   const selectedArtifact = artifactLabel(selectedProposal);
   const selectedSource = sourceLabel(selectedProposal);
+  const selectedContractIssues = contractIssues(selectedProposal);
+  const selectedContractStatus = contractStatus(selectedProposal);
+  const selectedContractBadge = contractBadge(selectedProposal);
+  const showContractDetails = selectedProposal && selectedContractStatus !== "complete";
 
   return (
     <div className="space-y-10">
@@ -369,6 +415,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                 const rev = reversibilityLabel(p.reversibility);
                 const cls = p.proposal_class ? CLASS_LABELS[p.proposal_class] ?? p.proposal_class : null;
                 const artifact = artifactLabel(p);
+                const signalBadge = contractBadge(p);
                 return (
                   <div
                     key={p.id}
@@ -392,6 +439,11 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                       {conflicts.length > 0 && (
                         <span className="rounded border border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--brand-gold)]">
                           {conflicts.length} conflict{conflicts.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {signalBadge && (
+                        <span className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${signalBadge.cls}`}>
+                          {signalBadge.label}
                         </span>
                       )}
                       {p.confidence !== undefined && (
@@ -463,6 +515,11 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                         {Math.round(selectedProposal.confidence * 100)}% confidence
                       </span>
                     )}
+                    {selectedContractBadge && (
+                      <span className={`rounded border px-1.5 py-0.5 font-medium ${selectedContractBadge.cls}`}>
+                        {selectedContractBadge.label}
+                      </span>
+                    )}
                     <span className="ml-auto">{timeAgo(selectedProposal.ts)}</span>
                   </div>
 
@@ -497,7 +554,50 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     </div>
                   )}
 
-                  {/* ⑥ Conflict warning */}
+                  {/* ⑥ Review contract diagnostics */}
+                  {showContractDetails && (
+                    <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2 text-xs">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Review contract</p>
+                        <span className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                          selectedContractStatus === "low_signal"
+                            ? "border-amber-700 text-[var(--brand-gold)]"
+                            : "border-[var(--border)] text-[var(--muted)]"
+                        }`}>
+                          {selectedContractStatus === "low_signal" ? "low signal" : "needs context"}
+                        </span>
+                      </div>
+                      <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-2">
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Source</dt>
+                          <dd className="text-[var(--foreground)]">{selectedSource ?? selectedProposal.source_type ?? "unknown"}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Artifact</dt>
+                          <dd className="text-[var(--foreground)]">{selectedArtifact ?? "not specified"}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Class</dt>
+                          <dd className="text-[var(--foreground)]">
+                            {selectedProposal.proposal_class
+                              ? CLASS_LABELS[selectedProposal.proposal_class] ?? selectedProposal.proposal_class
+                              : "not specified"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Scope</dt>
+                          <dd className="text-[var(--foreground)]">{selectedProposal.scope ?? "not specified"}</dd>
+                        </div>
+                      </dl>
+                      {selectedContractIssues.length > 0 && (
+                        <p className="mt-2 text-[11px] leading-relaxed text-[var(--muted)]">
+                          Missing: {selectedContractIssues.join(", ")}.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ⑦ Conflict warning */}
                   {hasConflicts && (
                     <div className="rounded border border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] px-3 py-2 text-xs text-[var(--brand-gold)]">
                       <p className="mb-1 font-medium">Possible conflicts</p>
@@ -509,7 +609,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     </div>
                   )}
 
-                  {/* ⑦ Full statement — expandable */}
+                  {/* ⑧ Full statement — expandable */}
                   <div>
                     <button
                       onClick={() => setDetailExpanded((v) => !v)}
@@ -525,7 +625,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     )}
                   </div>
 
-                  {/* ⑧ Related approved decisions */}
+                  {/* ⑨ Related approved decisions */}
                   {relatedDecisions.length > 0 && (
                     <div>
                       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Related decisions</p>
@@ -543,7 +643,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     </div>
                   )}
 
-                  {/* ⑨ Actions */}
+                  {/* ⑩ Actions */}
                   <div className="border-t border-[var(--border)] pt-4 space-y-2">
                     <div className="flex gap-2">
                       {[

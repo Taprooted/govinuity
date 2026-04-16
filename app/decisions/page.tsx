@@ -28,6 +28,33 @@ type Decision = {
   review_after?: string;
 };
 
+type DecisionOutcome = {
+  summary: {
+    injected_count: number;
+    excluded_count: number;
+    annotation_count: number;
+    annotation_counts: Record<string, number>;
+    exclusion_reasons: Record<string, number>;
+  };
+  recent_runs: Array<{
+    run_id: string;
+    ts: string;
+    project?: string | null;
+    agent?: string | null;
+    source?: string | null;
+    result: "injected" | "excluded";
+    reason?: string;
+  }>;
+  annotations: Array<{
+    annotation_id: string;
+    run_id: string;
+    ts: string;
+    annotation_type: string;
+    value: boolean;
+    note?: string | null;
+  }>;
+};
+
 const CLASS_LABELS: Record<string, string> = {
   // Canonical classes
   architectural_decision: "Architecture",
@@ -53,6 +80,14 @@ const TIER_LABEL: Record<string, { text: string; muted: boolean }> = {
   explicit:     { text: "Not auto-active",         muted: true },
   history_only: { text: "History only",           muted: true },
   re_ratify:    { text: "Re-ratification required", muted: true },
+};
+
+const OUTCOME_LABELS: Record<string, string> = {
+  context_restatement_required: "Context restated",
+  continuity_correction_required: "Correction required",
+  stale_leakage_detected: "Stale leakage",
+  approved_decision_followed: "Followed",
+  approved_decision_not_followed: "Not followed",
 };
 
 function TierBadge({ tier, scopeRef }: { tier?: string; scopeRef?: string }) {
@@ -85,12 +120,37 @@ function DecisionCard({ d, onRevoked, onUpdated }: {
   const [editConfidence, setEditConfidence] = useState(
     typeof d.confidence === "number" ? String(Math.round(d.confidence * 100)) : "80"
   );
+  const [outcome, setOutcome] = useState<DecisionOutcome | null>(null);
+  const [outcomeLoading, setOutcomeLoading] = useState(false);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
 
   const title = d.title || d.body.split("\n")[0].slice(0, 120);
   const classLabel = d.proposal_class ? (CLASS_LABELS[d.proposal_class] ?? d.proposal_class) : null;
   const rev = d.reversibility ? REVERSIBILITY_DOT[d.reversibility] : null;
   const ts = d.created_at ?? d.ts;
   const isDeferred = d.status === "deferred";
+
+  useEffect(() => {
+    if (!expanded || outcome) return;
+    let cancelled = false;
+    setOutcomeLoading(true);
+    setOutcomeError(null);
+    fetch(`/api/decisions/${encodeURIComponent(d.id)}/outcomes`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load continuity outcomes");
+        return r.json();
+      })
+      .then((data) => {
+        if (!cancelled) setOutcome(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setOutcomeError(err instanceof Error ? err.message : "Failed to load continuity outcomes");
+      })
+      .finally(() => {
+        if (!cancelled) setOutcomeLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [expanded, outcome, d.id]);
 
   async function handleRevoke() {
     setSaving(true);
@@ -203,6 +263,56 @@ function DecisionCard({ d, onRevoked, onUpdated }: {
             {typeof d.confidence === "number" && <span>Confidence: <span className="text-[var(--foreground)]">{Math.round(d.confidence * 100)}%</span></span>}
             {d.review_after && <span>Review after: <span className="text-[var(--foreground)]">{d.review_after.slice(0, 10)}</span></span>}
             {d.transfer_tier && <span>Injection: <span className="text-[var(--foreground)]">{TIER_LABEL[d.transfer_tier]?.text ?? d.transfer_tier}</span></span>}
+          </div>
+
+          <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Continuity outcomes</p>
+              {outcomeLoading && <span className="text-xs text-[var(--muted)]">Loading…</span>}
+            </div>
+            {outcomeError ? (
+              <p className="text-xs text-red-400">{outcomeError}</p>
+            ) : outcome ? (
+              <div className="space-y-2">
+                {outcome.recent_runs.length > 0 ? (
+                  <>
+                    <div className="flex flex-wrap gap-3 text-xs">
+                      <span><span className="text-indigo-400">{outcome.summary.injected_count}</span> injected</span>
+                      <span><span className="text-[var(--foreground)]">{outcome.summary.excluded_count}</span> excluded</span>
+                      <span><span className="text-[var(--foreground)]">{outcome.summary.annotation_count}</span> outcome signals</span>
+                    </div>
+                    {(Object.keys(outcome.summary.annotation_counts).length > 0 || Object.keys(outcome.summary.exclusion_reasons).length > 0) && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(outcome.summary.annotation_counts).map(([type, count]) => (
+                          <span key={type} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
+                            {OUTCOME_LABELS[type] ?? type}: {count}
+                          </span>
+                        ))}
+                        {Object.entries(outcome.summary.exclusion_reasons).map(([reason, count]) => (
+                          <span key={reason} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]">
+                            excluded: {reason} ({count})
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      {outcome.recent_runs.slice(0, 3).map((run) => (
+                        <div key={`${run.run_id}-${run.result}`} className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                          <span className={run.result === "injected" ? "text-indigo-400" : "text-amber-400"}>{run.result}</span>
+                          <span className="font-mono">{run.run_id.slice(0, 16)}…</span>
+                          {run.reason && <span>{run.reason}</span>}
+                          <span className="ml-auto">{timeAgo(run.ts)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-[var(--muted)]">No continuity runs have referenced this decision yet.</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-[var(--muted)]">Outcome data will appear after this decision is injected or excluded in a continuity run.</p>
+            )}
           </div>
 
           {d.note && !editing && (

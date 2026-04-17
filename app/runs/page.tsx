@@ -6,6 +6,13 @@ import { timeAgo } from "../../lib/utils";
 import type { ContinuityRunRecord } from "../../lib/run-log";
 import type { RunAnnotation, AnnotationType } from "../../lib/annotation-log";
 
+type DecisionRef = {
+  id: string;
+  title?: string | null;
+  body?: string | null;
+  status?: string | null;
+};
+
 const ANNOTATION_CONFIG: {
   type: AnnotationType;
   label: string;
@@ -36,19 +43,35 @@ const TONE_CLASS = {
 function RunCard({
   run,
   annotations,
+  decisionById,
   onAnnotated,
 }: {
   run: ContinuityRunRecord;
   annotations: RunAnnotation[];
+  decisionById: Record<string, DecisionRef>;
   onAnnotated: (runId: string, newAnnotations: RunAnnotation[]) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showAnnotate, setShowAnnotate] = useState(false);
   const [selected, setSelected] = useState<Set<AnnotationType>>(new Set());
+  const [targetDecisionId, setTargetDecisionId] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const existingTypes = new Set(annotations.map((a) => a.annotation_type));
+  const injectedDecisions = run.injected_ids
+    .map((id) => decisionById[id] ?? { id, title: id })
+    .filter(Boolean);
+  const existingTypes = new Set(
+    annotations
+      .filter((a) => (a.decision_id ?? "") === targetDecisionId)
+      .map((a) => a.annotation_type),
+  );
+
+  function decisionLabel(id?: string | null) {
+    if (!id) return "whole run";
+    const decision = decisionById[id];
+    return decision?.title ?? decision?.body?.slice(0, 72) ?? id;
+  }
 
   function toggle(type: AnnotationType) {
     setSelected((prev) => {
@@ -71,6 +94,7 @@ function RunCard({
           run_id: run.run_id,
           annotation_type,
           value: true,
+          decision_id: targetDecisionId || null,
           note: note.trim() || null,
         }),
       });
@@ -127,6 +151,9 @@ function RunCard({
                     className={`rounded border px-2 py-0.5 text-xs ${TONE_CLASS[cfg?.tone ?? "amber"].active}`}
                   >
                     {cfg?.label ?? a.annotation_type}
+                    {a.decision_id && (
+                      <span className="ml-1 opacity-70">· {decisionLabel(a.decision_id)}</span>
+                    )}
                   </span>
                 );
               })}
@@ -156,6 +183,33 @@ function RunCard({
             </button>
             {showAnnotate && (
               <div className="mt-2.5 space-y-2.5">
+                <div>
+                  <label className="mb-1 block text-xs text-[var(--muted)]">Applies to</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: "", label: "Whole run" },
+                      ...injectedDecisions.map((decision) => ({
+                        id: decision.id,
+                        label: decisionLabel(decision.id),
+                      })),
+                    ].map((target) => {
+                      const active = targetDecisionId === target.id;
+                      return (
+                        <button
+                          key={target.id || "whole-run"}
+                          onClick={() => { setTargetDecisionId(target.id); setSelected(new Set()); }}
+                          className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+                            active
+                              ? "border-indigo-700 bg-indigo-950/60 text-indigo-300"
+                              : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                          }`}
+                        >
+                          {target.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {ANNOTATION_CONFIG.map(({ type, label, tone }) => {
                     const alreadyDone = existingTypes.has(type);
@@ -294,6 +348,7 @@ function RecordSessionPanel({ activeProject, onLogged }: { activeProject: string
 export default function RunsPage() {
   const [runs, setRuns] = useState<ContinuityRunRecord[]>([]);
   const [annotations, setAnnotations] = useState<Record<string, RunAnnotation[]>>({});
+  const [decisionById, setDecisionById] = useState<Record<string, DecisionRef>>({});
   const [stats, setStats] = useState<{ total_runs: number; total_injected: number; total_excluded: number; exclusion_reasons: Record<string, number> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -301,9 +356,10 @@ export default function RunsPage() {
   async function load() {
     setLoading(true);
     const proj = activeProject ? `&project=${activeProject}` : "";
-    const [runsData, annotsData] = await Promise.all([
+    const [runsData, annotsData, decisionsData] = await Promise.all([
       fetch(`/api/runs?limit=50${proj}`).then((r) => r.json()),
       fetch(`/api/run-annotations?limit=500`).then((r) => r.json()),
+      fetch("/api/decisions?limit=500").then((r) => r.json()),
     ]);
 
     const fetchedRuns: ContinuityRunRecord[] = runsData.runs ?? [];
@@ -317,6 +373,8 @@ export default function RunsPage() {
       grouped[a.run_id].push(a);
     }
     setAnnotations(grouped);
+    const decisions: DecisionRef[] = decisionsData.entries ?? [];
+    setDecisionById(Object.fromEntries(decisions.map((d) => [d.id, d])));
     setLoading(false);
   }
 
@@ -394,6 +452,7 @@ export default function RunsPage() {
               key={run.run_id}
               run={run}
               annotations={annotations[run.run_id] ?? []}
+              decisionById={decisionById}
               onAnnotated={handleAnnotated}
             />
           ))}

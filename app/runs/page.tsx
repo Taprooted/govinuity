@@ -140,6 +140,26 @@ function RunCard({
 
       {expanded && (
         <div className="border-t border-[var(--border)] px-4 py-3 space-y-4">
+          {/* Injected decisions */}
+          {injectedDecisions.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Injected continuity</p>
+              <div className="space-y-1">
+                {injectedDecisions.map((decision) => (
+                  <div
+                    key={decision.id}
+                    className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2.5 py-1.5 text-xs"
+                  >
+                    <span className="truncate text-[var(--foreground)]">{decisionLabel(decision.id)}</span>
+                    <span className="ml-auto shrink-0 font-mono text-[10px] text-[var(--muted)]">
+                      {decision.id.slice(0, 14)}…
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Existing annotations */}
           {annotations.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -179,7 +199,7 @@ function RunCard({
               onClick={() => setShowAnnotate(v => !v)}
               className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
             >
-              {showAnnotate ? "▾ Hide manual annotation" : "▸ Annotate manually"}
+              {showAnnotate ? "▾ Hide outcome annotation" : "▸ Annotate outcome"}
             </button>
             {showAnnotate && (
               <div className="mt-2.5 space-y-2.5">
@@ -246,7 +266,7 @@ function RunCard({
                   disabled={saving || selected.size === 0}
                   className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
                 >
-                  {saving ? "Saving…" : `Save${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                  {saving ? "Saving…" : `Log outcome${selected.size > 0 ? ` (${selected.size})` : ""}`}
                 </button>
               </div>
             )}
@@ -395,7 +415,7 @@ export default function RunsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Runs"
-        description={`${stats?.total_runs ?? 0} continuity runs logged · ${annotatedRunCount} annotated — annotate runs to make continuity outcomes measurable.`}
+        description={`${stats?.total_runs ?? 0} continuity runs logged · ${annotatedRunCount} with outcome signals — measure whether injected continuity was followed, corrected, or stale.`}
       />
 
       <ProjectBar activeProject={activeProject} onSelect={setActiveProject} />
@@ -414,7 +434,7 @@ export default function RunsPage() {
             <p className="text-lg font-semibold">{stats.total_excluded}</p>
           </div>
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-            <p className="text-xs text-[var(--muted)]">Annotated</p>
+            <p className="text-xs text-[var(--muted)]">With outcome signals</p>
             <p className="text-lg font-semibold">{annotatedRunCount}</p>
           </div>
         </div>

@@ -4,6 +4,10 @@ Governed continuity for human-agent work.
 
 Agent systems are either stateless or too loosely persistent. Govinuity adds a governed continuity layer: candidate decisions are surfaced from ongoing agent work, reviewed by a human, and only then become reusable future context.
 
+**Status:** early local-first release. The core loop works end-to-end, but the product surfaces are still evolving. Govinuity is most useful today for technically literate users experimenting with agent continuity, review-gated memory, and observable reuse.
+
+**Feedback wanted:** does the loop make sense, does the quickstart work, are surfaced candidates useful enough to review, and do the run/outcome records help you understand whether continuity is working?
+
 ---
 
 ## Why this exists
@@ -47,6 +51,15 @@ Stack: Next.js 16 / React 19 / TypeScript / SQLite (`better-sqlite3`) / Tailwind
 
 ---
 
+## What this is not
+
+- **Not persistent memory by default** — context does not become authoritative just because it exists.
+- **Not a manual review board only** — proposal intake can surface candidate decisions from ongoing work, then route them through review.
+- **Not an agent orchestration platform** — Govinuity governs continuity; it does not schedule, delegate, or run agents.
+- **Not a hosted SaaS** — this release is local-first, single-user, and trusted-local.
+
+---
+
 ## Quickstart
 
 **Requirements:** Node.js 18+
@@ -64,6 +77,8 @@ Open [http://localhost:3000](http://localhost:3000).
 The `data/` directory and database are created automatically on first run.
 
 > **Trusted-local only.** Govinuity has no authentication. Run it on your local machine or a private, trusted environment. Do not expose it to shared networks or the public internet.
+
+For a quick tour, use **Load example data** on the dashboard. That seeds proposed and ratified decisions so you can inspect the Review, Decisions, and Runs surfaces without first wiring in an agent workflow.
 
 **Send your first proposal:**
 
@@ -244,6 +259,14 @@ data/
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the system works end-to-end: components, pipeline steps, injection eligibility, continuity runs, outcome measurement, data layout, integration points, and design invariants
 - [`docs/DECISION-SCHEMA.md`](docs/DECISION-SCHEMA.md) — full decision data model: lifecycle, proposal classes, transfer tiers, scope, confidence, temporal fields, supersession, and the complete injection eligibility taxonomy
 - [`docs/semantic-backfill.md`](docs/semantic-backfill.md) — normalizing legacy JSONL records
+
+---
+
+## Contact and feedback
+
+For questions, early-user feedback, or implementation notes: [hello@govinuity.com](mailto:hello@govinuity.com).
+
+If you are testing the repo, the most useful feedback is whether the governed continuity loop is clear, whether surfaced candidates are worth reviewing, and whether run/outcome records make reuse more inspectable.
 
 ---
 
